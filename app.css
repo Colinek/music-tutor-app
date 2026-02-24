@@ -1,0 +1,153 @@
+:root {
+  --bg: #f2f4f8;
+  --panel: #ffffff;
+  --text: #1f2933;
+  --muted: #52606d;
+  --accent: #0052cc;
+  --ok: #0f9d58;
+  --warn: #d93025;
+  --border: #d9e2ec;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at 20% 20%, #ffffff 0%, var(--bg) 60%);
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 16px;
+  min-height: 100vh;
+  padding: 16px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+}
+
+.controls {
+  padding: 16px;
+  overflow: auto;
+}
+
+.score-panel {
+  padding: 8px;
+}
+
+#scoreContainer {
+  height: calc(100vh - 34px);
+  overflow: auto;
+  padding: 16px;
+}
+
+h1,
+h2 {
+  margin: 0 0 8px;
+}
+
+h1 {
+  font-size: 1.4rem;
+}
+
+h2 {
+  font-size: 1rem;
+  margin-top: 16px;
+}
+
+label {
+  display: block;
+  font-size: 0.9rem;
+  margin: 8px 0 6px;
+}
+
+select,
+input[type="file"],
+input[type="range"],
+button {
+  width: 100%;
+  font-size: 0.95rem;
+}
+
+select,
+input[type="file"],
+button {
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+button {
+  cursor: pointer;
+  border-color: #b3c4db;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.inline-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.inline-toggle input {
+  width: auto;
+}
+
+.status {
+  margin-top: 14px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #eef4ff;
+  border: 1px solid #c3d7ff;
+  color: #1f3f75;
+}
+
+.muted {
+  color: var(--muted);
+  margin-top: 0;
+}
+
+.small {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 6px 0;
+}
+
+.good {
+  color: var(--ok);
+}
+
+.bad {
+  color: var(--warn);
+}
+
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  #scoreContainer {
+    height: auto;
+    min-height: 480px;
+  }
+}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Music Tutor Web App</title>
+  <link rel="stylesheet" href="./app.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="panel controls">
+      <h1>Music Tutor</h1>
+      <p class="muted">Use headphones for cleaner microphone feedback.</p>
+
+      <section>
+        <h2>Song Library</h2>
+        <label for="songSelect">Choose a song</label>
+        <select id="songSelect"></select>
+      </section>
+
+      <section>
+        <h2>Or Load Local Files</h2>
+        <label for="localMidiFile">MIDI file (.mid)</label>
+        <input id="localMidiFile" type="file" accept=".mid,.midi" />
+        <label for="localXmlFile">MusicXML file (.xml,.musicxml)</label>
+        <input id="localXmlFile" type="file" accept=".xml,.musicxml" />
+        <button id="loadLocalBtn" type="button">Load Local Pair</button>
+      </section>
+
+      <section>
+        <h2>Playback</h2>
+        <div class="row">
+          <button id="playPauseBtn" type="button">Play</button>
+          <button id="stopBtn" type="button">Stop</button>
+          <button id="micBtn" type="button">Start Mic</button>
+        </div>
+
+        <label for="tempoSlider">Tempo</label>
+        <input id="tempoSlider" type="range" min="0.5" max="1.5" step="0.05" value="1" />
+        <p class="small">Rate: <span id="tempoValue">1.00x</span></p>
+
+        <label for="analysisTrackSelect">Reference track</label>
+        <select id="analysisTrackSelect"></select>
+
+        <label class="inline-toggle">
+          <input id="guideAudible" type="checkbox" checked />
+          Keep reference track audible
+        </label>
+      </section>
+
+      <section>
+        <h2>Live Feedback</h2>
+        <p>Expected: <strong id="expectedNote">--</strong></p>
+        <p>Detected: <strong id="detectedNote">--</strong></p>
+        <p>Accuracy: <strong id="accuracyPct">0%</strong></p>
+        <p class="small">Checked notes: <span id="checkedNotes">0</span></p>
+        <p class="small" id="playbackTime">Time: 0.00s</p>
+      </section>
+
+      <p id="status" class="status">Loading songs...</p>
+    </aside>
+
+    <section class="panel score-panel">
+      <div id="scoreContainer">
+        <div id="score"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.9/build/opensheetmusicdisplay.min.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

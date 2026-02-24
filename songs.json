@@ -1,0 +1,10 @@
+[
+  {
+    "id": "demo",
+    "title": "demo",
+    "folder": "assets/songs/demo/",
+    "midiFilename": "demo.mid",
+    "xmlFilename": "demo.xml",
+    "analysisTrackIndex": 0
+  }
+]
