@@ -16,6 +16,8 @@ const dom = {
   micBtn: document.getElementById("micBtn"),
   tempoSlider: document.getElementById("tempoSlider"),
   tempoValue: document.getElementById("tempoValue"),
+  syncOffsetSlider: document.getElementById("syncOffsetSlider"),
+  syncOffsetValue: document.getElementById("syncOffsetValue"),
   analysisTrackSelect: document.getElementById("analysisTrackSelect"),
   guideAudible: document.getElementById("guideAudible"),
   expectedNote: document.getElementById("expectedNote"),
@@ -39,6 +41,7 @@ const state = {
   onsetTimes: [],
   nextOnsetIndex: 0,
   tempoRate: 1,
+  syncOffsetSeconds: 0,
   totalDuration: 0,
   isPlaying: false,
   uiLoopId: null,
@@ -66,6 +69,7 @@ async function init() {
   bindEvents();
   await loadSongsIndex();
   dom.tempoValue.textContent = `${state.tempoRate.toFixed(2)}x`;
+  updateSyncOffsetUi();
 }
 
 function bindEvents() {
@@ -136,11 +140,20 @@ function bindEvents() {
     setReferenceTrack(state.referenceTrackIndex);
 
     Tone.Transport.seconds = state.totalDuration * oldProgress;
-    syncCursorToTime(Tone.Transport.seconds);
+    syncCursorToTime(getEffectiveScoreTime(Tone.Transport.seconds));
 
     if (wasPlaying) {
       startPlayback();
     }
+  });
+
+  dom.syncOffsetSlider.addEventListener("input", () => {
+    state.syncOffsetSeconds = Number(dom.syncOffsetSlider.value);
+    updateSyncOffsetUi();
+
+    const scoreTime = getEffectiveScoreTime(Tone.Transport.seconds);
+    syncCursorToTime(scoreTime);
+    evaluateFeedbackAtTime(scoreTime);
   });
 
   dom.analysisTrackSelect.addEventListener("change", () => {
@@ -150,7 +163,7 @@ function bindEvents() {
     state.referenceTrackIndex = Number(dom.analysisTrackSelect.value);
     setReferenceTrack(state.referenceTrackIndex);
     rebuildPlaybackGraph();
-    syncCursorToTime(Tone.Transport.seconds);
+    syncCursorToTime(getEffectiveScoreTime(Tone.Transport.seconds));
   });
 
   dom.guideAudible.addEventListener("change", () => {
@@ -164,7 +177,7 @@ function bindEvents() {
     }
     rebuildPlaybackGraph();
     Tone.Transport.seconds = currentTime;
-    syncCursorToTime(currentTime);
+    syncCursorToTime(getEffectiveScoreTime(currentTime));
     if (wasPlaying) {
       startPlayback();
     }
@@ -269,6 +282,9 @@ async function applySongData({ song, midiBuffer, xmlText, sourceLabel }) {
   stopPlayback(true);
   state.currentSong = song;
   state.midi = new Midi(midiBuffer);
+  state.syncOffsetSeconds = Number(song.syncOffsetSeconds ?? 0);
+  dom.syncOffsetSlider.value = String(state.syncOffsetSeconds);
+  updateSyncOffsetUi();
 
   await renderMusicXml(xmlText);
   populateTrackSelect();
@@ -279,6 +295,7 @@ async function applySongData({ song, midiBuffer, xmlText, sourceLabel }) {
 
   rebuildPlaybackGraph();
   setReferenceTrack(state.referenceTrackIndex);
+  syncCursorToTime(getEffectiveScoreTime(Tone.Transport.seconds));
 
   setStatus(`${sourceLabel} loaded.`);
 }
@@ -429,7 +446,7 @@ function startPlayback() {
   if (Tone.Transport.seconds >= state.totalDuration && state.totalDuration > 0) {
     Tone.Transport.seconds = 0;
     resetPerformanceStats();
-    syncCursorToTime(0);
+    syncCursorToTime(getEffectiveScoreTime(0));
   }
 
   Tone.Transport.start("+0.05");
@@ -453,7 +470,7 @@ function stopPlayback(resetPosition) {
   if (resetPosition) {
     Tone.Transport.seconds = 0;
     resetPerformanceStats();
-    syncCursorToTime(0);
+    syncCursorToTime(getEffectiveScoreTime(0));
     dom.playbackTime.textContent = "Time: 0.00s";
   }
 
@@ -464,10 +481,11 @@ function startUiLoop() {
   stopUiLoop();
   state.uiLoopId = window.setInterval(() => {
     const t = Tone.Transport.seconds;
+    const scoreTime = getEffectiveScoreTime(t);
 
-    dom.playbackTime.textContent = `Time: ${t.toFixed(2)}s`;
-    syncCursorForward(t);
-    evaluateFeedbackAtTime(t);
+    dom.playbackTime.textContent = `Time: ${t.toFixed(2)}s | Score: ${scoreTime.toFixed(2)}s`;
+    syncCursorForward(scoreTime);
+    evaluateFeedbackAtTime(scoreTime);
 
     if (state.totalDuration > 0 && t >= state.totalDuration) {
       pausePlayback();
@@ -741,6 +759,14 @@ function midiToNoteName(midi) {
 
 function updateExpected(noteLabel) {
   dom.expectedNote.textContent = noteLabel;
+}
+
+function updateSyncOffsetUi() {
+  dom.syncOffsetValue.textContent = `${state.syncOffsetSeconds.toFixed(2)}s`;
+}
+
+function getEffectiveScoreTime(playbackTimeSeconds) {
+  return Math.max(playbackTimeSeconds + state.syncOffsetSeconds, 0);
 }
 
 function setStatus(message) {

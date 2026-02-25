@@ -39,6 +39,10 @@
         <input id="tempoSlider" type="range" min="0.5" max="1.5" step="0.05" value="1" />
         <p class="small">Rate: <span id="tempoValue">1.00x</span></p>
 
+        <label for="syncOffsetSlider">Score sync offset (seconds)</label>
+        <input id="syncOffsetSlider" type="range" min="-4" max="4" step="0.05" value="0" />
+        <p class="small">Offset: <span id="syncOffsetValue">0.00s</span> (positive advances score/feedback)</p>
+
         <label for="analysisTrackSelect">Reference track</label>
         <select id="analysisTrackSelect"></select>
 

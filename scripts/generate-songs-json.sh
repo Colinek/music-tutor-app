@@ -32,7 +32,8 @@ while IFS= read -r dir; do
     "folder": "$ROOT_DIR/$id/",
     "midiFilename": "$midi_name",
     "xmlFilename": "$xml_name",
-    "analysisTrackIndex": 0
+    "analysisTrackIndex": 0,
+    "syncOffsetSeconds": 0
   }
 JSON
 )

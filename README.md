@@ -52,10 +52,14 @@ Manual entry format:
     "folder": "assets/songs/twinkle/",
     "midiFilename": "twinkle.mid",
     "xmlFilename": "twinkle.xml",
-    "analysisTrackIndex": 0
+    "analysisTrackIndex": 0,
+    "syncOffsetSeconds": 0
   }
 ]
 ```
+
+`syncOffsetSeconds` is optional.
+Use a positive value if the score is behind the MIDI.
 
 ## 4. Run Locally
 

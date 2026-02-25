@@ -5,7 +5,8 @@
     "folder": "assets/songs/demo/",
     "midiFilename": "demo.mid",
     "xmlFilename": "demo.xml",
-    "analysisTrackIndex": 0
+    "analysisTrackIndex": 0,
+    "syncOffsetSeconds": 0
   },
   {
     "id": "rosetti",
@@ -13,6 +14,7 @@
     "folder": "assets/songs/rosetti/",
     "midiFilename": "Song.mid",
     "xmlFilename": "Song.mxl",
-    "analysisTrackIndex": 0
+    "analysisTrackIndex": 0,
+    "syncOffsetSeconds": 0
   }
 ]
