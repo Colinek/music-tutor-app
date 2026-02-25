@@ -14,7 +14,7 @@ while IFS= read -r dir; do
   id="$(basename "$dir")"
 
   midi_file="$(find "$dir" -maxdepth 1 -type f \( -iname '*.mid' -o -iname '*.midi' \) | sort | head -n1 || true)"
-  xml_file="$(find "$dir" -maxdepth 1 -type f \( -iname '*.xml' -o -iname '*.musicxml' \) | sort | head -n1 || true)"
+  xml_file="$(find "$dir" -maxdepth 1 -type f \( -iname '*.xml' -o -iname '*.musicxml' -o -iname '*.mxl' \) | sort | head -n1 || true)"
 
   if [[ -z "$midi_file" || -z "$xml_file" ]]; then
     echo "Skipping '$id' (need both MIDI and MusicXML)." >&2

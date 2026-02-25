@@ -1,5 +1,6 @@
 import * as Tone from "https://cdn.jsdelivr.net/npm/tone@15.1.22/+esm";
 import { Midi } from "https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/+esm";
+import JSZip from "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const TIMING_WINDOW_SECONDS = 0.2;
@@ -215,6 +216,7 @@ async function loadSongFromManifest(song) {
   const folder = song.folder.endsWith("/") ? song.folder : `${song.folder}/`;
   const midiPath = `${folder}${song.midiFilename}`;
   const xmlPath = `${folder}${song.xmlFilename}`;
+  const isMxl = /\.mxl$/i.test(song.xmlFilename || "");
 
   setStatus(`Loading ${song.title}...`);
 
@@ -228,7 +230,8 @@ async function loadSongFromManifest(song) {
       throw new Error(`Fetch failed (midi ${midiRes.status}, xml ${xmlRes.status})`);
     }
 
-    const [midiBuffer, xmlText] = await Promise.all([midiRes.arrayBuffer(), xmlRes.text()]);
+    const midiBuffer = await midiRes.arrayBuffer();
+    const xmlText = isMxl ? await extractMusicXmlFromMxl(await xmlRes.arrayBuffer()) : await xmlRes.text();
     await applySongData({
       song,
       midiBuffer,
@@ -242,8 +245,11 @@ async function loadSongFromManifest(song) {
 
 async function loadLocalSongPair(midiFile, xmlFile) {
   setStatus(`Loading local files: ${midiFile.name}, ${xmlFile.name}`);
+  const isMxl = /\.mxl$/i.test(xmlFile.name);
+
   try {
-    const [midiBuffer, xmlText] = await Promise.all([midiFile.arrayBuffer(), xmlFile.text()]);
+    const midiBuffer = await midiFile.arrayBuffer();
+    const xmlText = isMxl ? await extractMusicXmlFromMxl(await xmlFile.arrayBuffer()) : await xmlFile.text();
     await applySongData({
       song: {
         id: "local",
@@ -739,4 +745,36 @@ function updateExpected(noteLabel) {
 
 function setStatus(message) {
   dom.status.textContent = message;
+}
+
+async function extractMusicXmlFromMxl(mxlBuffer) {
+  const zip = await JSZip.loadAsync(mxlBuffer);
+  let scorePath = null;
+
+  const containerFile = zip.file("META-INF/container.xml");
+  if (containerFile) {
+    const containerXml = await containerFile.async("string");
+    const containerDoc = new DOMParser().parseFromString(containerXml, "application/xml");
+    scorePath = containerDoc.getElementsByTagName("rootfile")[0]?.getAttribute("full-path") || null;
+  }
+
+  let musicXmlFile = scorePath ? zip.file(scorePath) : null;
+  if (!musicXmlFile) {
+    const fallbackPath = Object.keys(zip.files).find(
+      (name) =>
+        /\.(xml|musicxml)$/i.test(name) &&
+        !name.startsWith("META-INF/") &&
+        !zip.files[name].dir
+    );
+    if (!fallbackPath) {
+      throw new Error("Invalid MXL file: no MusicXML score found in archive.");
+    }
+    musicXmlFile = zip.file(fallbackPath);
+  }
+
+  if (!musicXmlFile) {
+    throw new Error("Invalid MXL file: score entry could not be loaded.");
+  }
+
+  return musicXmlFile.async("string");
 }

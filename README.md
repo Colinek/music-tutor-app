@@ -13,7 +13,7 @@ It supports:
 
 For each piece, create a folder under `assets/songs/<song_id>/` with:
 - one MIDI file (`.mid`)
-- one MusicXML file (`.xml` or `.musicxml`)
+- one MusicXML file (`.xml`, `.musicxml`, or `.mxl`)
 
 Example:
 
