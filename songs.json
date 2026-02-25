@@ -12,7 +12,7 @@
     "title": "rosetti",
     "folder": "assets/songs/rosetti/",
     "midiFilename": "Song.mid",
-    "xmlFilename": "Song.xml",
+    "xmlFilename": "Song.mxl",
     "analysisTrackIndex": 0
   }
 ]
