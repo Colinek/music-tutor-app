@@ -9,6 +9,15 @@
     "syncOffsetSeconds": 0
   },
   {
+    "id": "Mamma-mia",
+    "title": "Mamma mia",
+    "folder": "assets/songs/Mamma-mia/",
+    "midiFilename": "Mamma-Mia.mid",
+    "xmlFilename": "Mamma-Mia.xml",
+    "analysisTrackIndex": 0,
+    "syncOffsetSeconds": 0
+  },
+  {
     "id": "rosetti",
     "title": "rosetti",
     "folder": "assets/songs/rosetti/",
