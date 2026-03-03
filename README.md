@@ -56,13 +56,19 @@ Manual entry format:
     "midiFilename": "twinkle.mid",
     "xmlFilename": "twinkle.xml",
     "analysisTrackIndex": 0,
-    "syncOffsetSeconds": 0
+    "syncOffsetSeconds": 0,
+    "drumTrackIndices": [3],
+    "programOverrides": {
+      "1": 73,
+      "2": 33
+    }
   }
 ]
 ```
 
 `syncOffsetSeconds` is optional.
 Use a positive value if the score is behind the MIDI.
+`drumTrackIndices` and `programOverrides` are optional track-audio overrides.
 
 ## 4. Run Locally
 
@@ -107,6 +113,9 @@ Then open `http://localhost:8080`.
 
 The app now uses WebAudioFont presets for fuller GM instrument playback, with
 fallback synth voicing if a preset cannot be loaded.
+
+The status line reports the active engine and preset counts, for example:
+`Playback engine: SoundFont. Loaded presets: melodic=4, drums=6.`
 
 For best results in your MIDI:
 - Name tracks with voice labels (`Soprano`, `Alto`, `Tenor`, `Bass`), or keep them in SATB order.

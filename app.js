@@ -21,6 +21,7 @@ const dom = {
   analysisTrackSelect: document.getElementById("analysisTrackSelect"),
   scoreModeSelect: document.getElementById("scoreModeSelect"),
   guideAudible: document.getElementById("guideAudible"),
+  trackDebug: document.getElementById("trackDebug"),
   expectedNote: document.getElementById("expectedNote"),
   detectedNote: document.getElementById("detectedNote"),
   accuracyPct: document.getElementById("accuracyPct"),
@@ -69,7 +70,9 @@ const state = {
     audioContext: null,
     presetPromiseCache: new Map(),
     trackPresets: new Map(),
-    drumPresets: new Map()
+    drumPresets: new Map(),
+    lastSummary: "",
+    lastError: ""
   }
 };
 
@@ -314,13 +317,16 @@ async function applySongData({ song, midiBuffer, xmlText, sourceLabel }) {
   dom.analysisTrackSelect.value = String(state.referenceTrackIndex);
 
   await prepareSoundfontPresetsForCurrentSong();
+  renderTrackDebugInfo();
   rebuildPlaybackGraph();
   setReferenceTrack(state.referenceTrackIndex);
   await renderScoreForCurrentMode();
   syncCursorToTime(getEffectiveScoreTime(Tone.Transport.seconds));
 
   const engine = state.soundfont.readyForSong ? "SoundFont" : "Synth fallback";
-  setStatus(`${sourceLabel} loaded. Playback engine: ${engine}.`);
+  const summary = state.soundfont.lastSummary ? ` ${state.soundfont.lastSummary}` : "";
+  const error = state.soundfont.lastError ? ` ${state.soundfont.lastError}` : "";
+  setStatus(`${sourceLabel} loaded. Playback engine: ${engine}.${summary}${error}`);
 }
 
 async function renderMusicXml(xmlText) {
@@ -859,10 +865,37 @@ function setStatus(message) {
   dom.status.textContent = message;
 }
 
+function renderTrackDebugInfo() {
+  if (!dom.trackDebug) {
+    return;
+  }
+  if (!state.midi?.tracks?.length) {
+    dom.trackDebug.textContent = "No MIDI tracks.";
+    return;
+  }
+
+  const lines = state.midi.tracks.map((track, index) => {
+    const channel = track.channel ?? "-";
+    const rawProgram = clampMidiProgram(track.instrument?.number ?? 0);
+    const selectedProgram = getPreferredProgramForTrack(track, index);
+    const percussion = isPercussionTrack(track, index);
+    const loaded = percussion
+      ? track.notes.some((note) => state.soundfont.drumPresets.has(note.midi))
+      : state.soundfont.trackPresets.has(index);
+    const name = (track.name || track.instrument?.name || `Track ${index + 1}`).trim();
+
+    return `#${index} ch=${channel} rawProg=${rawProgram} useProg=${selectedProgram} perc=${percussion} preset=${loaded} name="${name}"`;
+  });
+
+  dom.trackDebug.textContent = lines.join("\n");
+}
+
 async function prepareSoundfontPresetsForCurrentSong() {
   state.soundfont.readyForSong = false;
   state.soundfont.trackPresets = new Map();
   state.soundfont.drumPresets = new Map();
+  state.soundfont.lastSummary = "";
+  state.soundfont.lastError = "";
 
   if (!state.midi) {
     return;
@@ -870,6 +903,7 @@ async function prepareSoundfontPresetsForCurrentSong() {
 
   const available = ensureSoundfontAvailable();
   if (!available) {
+    state.soundfont.lastError = " WebAudioFont runtime unavailable.";
     return;
   }
 
@@ -880,7 +914,7 @@ async function prepareSoundfontPresetsForCurrentSong() {
       return;
     }
 
-    if (isPercussionTrack(track)) {
+    if (isPercussionTrack(track, index)) {
       const uniqueDrumNotes = [...new Set(track.notes.map((note) => note.midi))];
       uniqueDrumNotes.forEach((drumNote) => {
         loadTasks.push(
@@ -906,10 +940,13 @@ async function prepareSoundfontPresetsForCurrentSong() {
 
   try {
     await Promise.all(loadTasks);
-    state.soundfont.readyForSong = true;
+    const melodicCount = state.soundfont.trackPresets.size;
+    const drumCount = state.soundfont.drumPresets.size;
+    state.soundfont.readyForSong = melodicCount > 0 || drumCount > 0;
+    state.soundfont.lastSummary = `Loaded presets: melodic=${melodicCount}, drums=${drumCount}.`;
   } catch (err) {
     state.soundfont.readyForSong = false;
-    setStatus(`SoundFont load failed, using synth fallback (${err.message}).`);
+    state.soundfont.lastError = ` SoundFont load failed (${err.message}).`;
   }
 }
 
@@ -1003,7 +1040,7 @@ function createTrackVoice(track, index) {
 }
 
 function hasSoundfontPresetForTrack(track, index) {
-  if (isPercussionTrack(track)) {
+  if (isPercussionTrack(track, index)) {
     return track.notes.some((note) => state.soundfont.drumPresets.has(note.midi));
   }
   return state.soundfont.trackPresets.has(index);
@@ -1023,7 +1060,7 @@ function createSoundfontTrackVoice(track, index) {
     panner.pan.value = getPanForRole(role);
     panner.connect(gainNode);
   }
-  gainNode.gain.value = isPercussionTrack(track) ? 0.9 : 0.85;
+  gainNode.gain.value = isPercussionTrack(track, index) ? 0.9 : 0.85;
   gainNode.connect(audioContext.destination);
 
   const targetNode = panner || gainNode;
@@ -1031,7 +1068,9 @@ function createSoundfontTrackVoice(track, index) {
 
   return {
     trigger(time, event) {
-      const preset = isPercussionTrack(track) ? state.soundfont.drumPresets.get(event.midi) : melodicPreset;
+      const preset = isPercussionTrack(track, index)
+        ? state.soundfont.drumPresets.get(event.midi)
+        : melodicPreset;
       if (!preset) {
         return;
       }
@@ -1087,10 +1126,18 @@ function createAudioNodeDisposables(nodes) {
     }));
 }
 
-function isPercussionTrack(track) {
+function isPercussionTrack(track, index = -1) {
+  const forcedDrums = Array.isArray(state.currentSong?.drumTrackIndices)
+    ? state.currentSong.drumTrackIndices.map((v) => Number(v))
+    : [];
+  if (forcedDrums.includes(index)) {
+    return true;
+  }
+
   const label = `${track.name || ""} ${track.instrument?.name || ""}`.toLowerCase();
   return (
     track.channel === 9 ||
+    track.channel === 10 ||
     track.instrument?.percussion === true ||
     label.includes("drum") ||
     label.includes("perc")
@@ -1102,6 +1149,11 @@ function clampMidiProgram(program) {
 }
 
 function getPreferredProgramForTrack(track, index) {
+  const overrideValue = state.currentSong?.programOverrides?.[String(index)];
+  if (overrideValue != null && overrideValue !== "") {
+    return clampMidiProgram(overrideValue);
+  }
+
   const rawProgram = clampMidiProgram(track.instrument?.number ?? 0);
   const label = `${track.name || ""} ${track.instrument?.name || ""}`.toLowerCase();
   const role = detectVoiceRole(track, index);
@@ -1111,7 +1163,7 @@ function getPreferredProgramForTrack(track, index) {
     return rawProgram;
   }
 
-  if (isPercussionTrack(track)) {
+  if (isPercussionTrack(track, index)) {
     return 0;
   }
   if (label.includes("bass")) {
