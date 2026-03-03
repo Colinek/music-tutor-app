@@ -6,6 +6,7 @@ It supports:
 - Song selection from `songs.json`
 - MIDI playback in browser
 - MusicXML score rendering with OpenSheetMusicDisplay
+- Score display toggle: full score or reference part only
 - Microphone pitch detection
 - Real-time comparison against a reference track (default Track 1 / index `0`)
 
@@ -33,6 +34,7 @@ assets/songs/
 - Keep MIDI and MusicXML exported from the same source score/session.
 - Linearize repeats in both exports (no playback-only jumps).
 - Keep any count-in consistent between MIDI and XML.
+- For accurate reference-part display, keep MIDI track order aligned with MusicXML part order.
 
 ## 3. Build `songs.json`
 
@@ -99,3 +101,11 @@ Then open `http://localhost:8080`.
 - Browser synth playback is functional but not orchestral quality.
 - Cursor movement is approximate by note onsets.
 - Recommend headphones to reduce backing-track bleed into mic.
+
+## 8. Better Vocal Playback (SATB)
+
+The app now applies per-track voicing, pan spread, and light chorus/reverb.
+
+For best results in your MIDI:
+- Name tracks with voice labels (`Soprano`, `Alto`, `Tenor`, `Bass`), or keep them in SATB order.
+- Use vocal-like GM programs where possible (Choir/Voice family).

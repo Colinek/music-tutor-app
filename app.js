@@ -19,6 +19,7 @@ const dom = {
   syncOffsetSlider: document.getElementById("syncOffsetSlider"),
   syncOffsetValue: document.getElementById("syncOffsetValue"),
   analysisTrackSelect: document.getElementById("analysisTrackSelect"),
+  scoreModeSelect: document.getElementById("scoreModeSelect"),
   guideAudible: document.getElementById("guideAudible"),
   expectedNote: document.getElementById("expectedNote"),
   detectedNote: document.getElementById("detectedNote"),
@@ -33,6 +34,7 @@ const state = {
   songs: [],
   currentSong: null,
   midi: null,
+  musicXmlText: "",
   osmd: null,
   cursor: null,
   players: [],
@@ -42,6 +44,7 @@ const state = {
   nextOnsetIndex: 0,
   tempoRate: 1,
   syncOffsetSeconds: 0,
+  scoreMode: "full",
   totalDuration: 0,
   isPlaying: false,
   uiLoopId: null,
@@ -70,6 +73,7 @@ async function init() {
   await loadSongsIndex();
   dom.tempoValue.textContent = `${state.tempoRate.toFixed(2)}x`;
   updateSyncOffsetUi();
+  dom.scoreModeSelect.value = state.scoreMode;
 }
 
 function bindEvents() {
@@ -156,13 +160,20 @@ function bindEvents() {
     evaluateFeedbackAtTime(scoreTime);
   });
 
-  dom.analysisTrackSelect.addEventListener("change", () => {
+  dom.analysisTrackSelect.addEventListener("change", async () => {
     if (!state.midi) {
       return;
     }
     state.referenceTrackIndex = Number(dom.analysisTrackSelect.value);
     setReferenceTrack(state.referenceTrackIndex);
     rebuildPlaybackGraph();
+    await renderScoreForCurrentMode();
+    syncCursorToTime(getEffectiveScoreTime(Tone.Transport.seconds));
+  });
+
+  dom.scoreModeSelect.addEventListener("change", async () => {
+    state.scoreMode = dom.scoreModeSelect.value === "reference" ? "reference" : "full";
+    await renderScoreForCurrentMode();
     syncCursorToTime(getEffectiveScoreTime(Tone.Transport.seconds));
   });
 
@@ -282,11 +293,11 @@ async function applySongData({ song, midiBuffer, xmlText, sourceLabel }) {
   stopPlayback(true);
   state.currentSong = song;
   state.midi = new Midi(midiBuffer);
+  state.musicXmlText = xmlText;
   state.syncOffsetSeconds = Number(song.syncOffsetSeconds ?? 0);
   dom.syncOffsetSlider.value = String(state.syncOffsetSeconds);
   updateSyncOffsetUi();
 
-  await renderMusicXml(xmlText);
   populateTrackSelect();
 
   const initialTrack = Number(song.analysisTrackIndex ?? 0);
@@ -295,6 +306,7 @@ async function applySongData({ song, midiBuffer, xmlText, sourceLabel }) {
 
   rebuildPlaybackGraph();
   setReferenceTrack(state.referenceTrackIndex);
+  await renderScoreForCurrentMode();
   syncCursorToTime(getEffectiveScoreTime(Tone.Transport.seconds));
 
   setStatus(`${sourceLabel} loaded.`);
@@ -323,6 +335,57 @@ async function renderMusicXml(xmlText) {
   }
 }
 
+async function renderScoreForCurrentMode() {
+  if (!state.musicXmlText) {
+    return;
+  }
+
+  const xmlToRender = getMusicXmlForCurrentMode();
+  await renderMusicXml(xmlToRender);
+}
+
+function getMusicXmlForCurrentMode() {
+  if (state.scoreMode !== "reference") {
+    return state.musicXmlText;
+  }
+
+  return extractReferencePartMusicXml(state.musicXmlText, state.referenceTrackIndex);
+}
+
+function extractReferencePartMusicXml(xmlText, partIndex) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "application/xml");
+
+  if (doc.getElementsByTagName("parsererror").length > 0) {
+    return xmlText;
+  }
+
+  const scoreParts = Array.from(doc.getElementsByTagName("score-part"));
+  const partNodes = Array.from(doc.getElementsByTagName("part"));
+  const clamped = Math.max(0, partIndex);
+  const scorePartNode = scoreParts[clamped] || scoreParts[0] || null;
+  const keepPartId = scorePartNode?.getAttribute("id") || partNodes[clamped]?.getAttribute("id") || null;
+
+  if (!keepPartId) {
+    return xmlText;
+  }
+
+  scoreParts.forEach((node) => {
+    if (node.getAttribute("id") !== keepPartId) {
+      node.remove();
+    }
+  });
+
+  partNodes.forEach((node) => {
+    if (node.getAttribute("id") !== keepPartId) {
+      node.remove();
+    }
+  });
+
+  const serializer = new XMLSerializer();
+  return serializer.serializeToString(doc);
+}
+
 function populateTrackSelect() {
   dom.analysisTrackSelect.innerHTML = "";
 
@@ -346,7 +409,7 @@ function populateTrackSelect() {
 function rebuildPlaybackGraph() {
   state.players.forEach((player) => {
     player.part.dispose();
-    player.synth.dispose();
+    player.disposeNodes.forEach((node) => node.dispose());
   });
   state.players = [];
 
@@ -368,10 +431,7 @@ function rebuildPlaybackGraph() {
       return;
     }
 
-    const synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 0.2 }
-    }).toDestination();
+    const instrumentChain = createInstrumentChainForTrack(track, index);
 
     const events = track.notes.map((note) => {
       const event = {
@@ -391,10 +451,15 @@ function rebuildPlaybackGraph() {
       if (index === state.referenceTrackIndex && !guideAudible) {
         return;
       }
-      synth.triggerAttackRelease(Tone.Frequency(event.midi, "midi"), event.duration, time, event.velocity);
+      instrumentChain.instrument.triggerAttackRelease(
+        Tone.Frequency(event.midi, "midi"),
+        event.duration,
+        time,
+        event.velocity
+      );
     }, events).start(0);
 
-    state.players.push({ synth, part });
+    state.players.push({ part, disposeNodes: instrumentChain.disposeNodes });
   });
 
   state.totalDuration = maxEnd;
@@ -771,6 +836,90 @@ function getEffectiveScoreTime(playbackTimeSeconds) {
 
 function setStatus(message) {
   dom.status.textContent = message;
+}
+
+function createInstrumentChainForTrack(track, index) {
+  const role = detectVoiceRole(track, index);
+  const program = track.instrument?.number ?? 0;
+
+  const synthOptions = getSynthOptionsForTrack(program, role);
+  const instrument = new Tone.PolySynth(Tone.Synth, synthOptions);
+
+  // Give SATB a natural stage spread; fallback tracks remain centered.
+  const panner = new Tone.Panner(getPanForRole(role));
+  const chorus = new Tone.Chorus(2.2, 3.5, 0.2).start();
+  const reverb = new Tone.JCReverb(0.3);
+  const gain = new Tone.Gain(0.9);
+
+  instrument.chain(chorus, reverb, panner, gain, Tone.Destination);
+  instrument.set({ detune: getDetuneForRole(role) });
+
+  return {
+    instrument,
+    disposeNodes: [instrument, chorus, reverb, panner, gain]
+  };
+}
+
+function detectVoiceRole(track, index) {
+  const name = `${track.name || ""} ${track.instrument?.name || ""}`.toLowerCase();
+
+  if (name.includes("sopr")) return "soprano";
+  if (name.includes("alto")) return "alto";
+  if (name.includes("tenor")) return "tenor";
+  if (name.includes("bass")) return "bass";
+
+  // Common SATB ordering fallback for 4-part vocal MIDIs.
+  if ((state.midi?.tracks?.length || 0) === 4) {
+    return ["soprano", "alto", "tenor", "bass"][index] || "generic";
+  }
+
+  return "generic";
+}
+
+function getSynthOptionsForTrack(program, role) {
+  const choirPrograms = new Set([52, 53, 54, 55]); // Choir Aahs, Voice Oohs, Synth Voice, Orchestra Hit
+
+  if (role !== "generic" || choirPrograms.has(program)) {
+    return {
+      oscillator: { type: "triangle8" },
+      envelope: { attack: 0.06, decay: 0.25, sustain: 0.65, release: 0.9 }
+    };
+  }
+
+  if (program >= 40 && program <= 51) {
+    return {
+      oscillator: { type: "sawtooth6" },
+      envelope: { attack: 0.04, decay: 0.2, sustain: 0.5, release: 0.6 }
+    };
+  }
+
+  if (program >= 32 && program <= 39) {
+    return {
+      oscillator: { type: "square4" },
+      envelope: { attack: 0.02, decay: 0.15, sustain: 0.45, release: 0.4 }
+    };
+  }
+
+  return {
+    oscillator: { type: "triangle6" },
+    envelope: { attack: 0.02, decay: 0.12, sustain: 0.4, release: 0.35 }
+  };
+}
+
+function getPanForRole(role) {
+  if (role === "soprano") return 0.35;
+  if (role === "alto") return 0.12;
+  if (role === "tenor") return -0.12;
+  if (role === "bass") return -0.35;
+  return 0;
+}
+
+function getDetuneForRole(role) {
+  if (role === "soprano") return 3;
+  if (role === "alto") return -2;
+  if (role === "tenor") return 1;
+  if (role === "bass") return -4;
+  return 0;
 }
 
 async function extractMusicXmlFromMxl(mxlBuffer) {
