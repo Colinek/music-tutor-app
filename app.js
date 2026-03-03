@@ -1166,6 +1166,21 @@ function getPreferredProgramForTrack(track, index) {
   if (isPercussionTrack(track, index)) {
     return 0;
   }
+  if (label.includes("ocarina")) {
+    return 79; // Ocarina
+  }
+  if (label.includes("recorder")) {
+    return 74; // Recorder
+  }
+  if (label.includes("marimba")) {
+    return 12; // Marimba
+  }
+  if (label.includes("cello") || label.includes("violoncello")) {
+    return 42; // Cello
+  }
+  if (label.includes("solo") || label.includes("vocal") || label.includes("voice")) {
+    return 52; // Choir Aahs
+  }
   if (label.includes("bass")) {
     return 33; // Fingered Bass
   }
