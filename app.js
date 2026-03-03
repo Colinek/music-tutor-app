@@ -61,6 +61,15 @@ const state = {
     hits: 0,
     results: new Map(),
     nextFinalizeIndex: 0
+  },
+  soundfont: {
+    available: false,
+    readyForSong: false,
+    player: null,
+    audioContext: null,
+    presetPromiseCache: new Map(),
+    trackPresets: new Map(),
+    drumPresets: new Map()
   }
 };
 
@@ -304,6 +313,7 @@ async function applySongData({ song, midiBuffer, xmlText, sourceLabel }) {
   state.referenceTrackIndex = clampTrackIndex(initialTrack);
   dom.analysisTrackSelect.value = String(state.referenceTrackIndex);
 
+  await prepareSoundfontPresetsForCurrentSong();
   rebuildPlaybackGraph();
   setReferenceTrack(state.referenceTrackIndex);
   await renderScoreForCurrentMode();
@@ -446,7 +456,7 @@ function rebuildPlaybackGraph() {
       return;
     }
 
-    const instrumentChain = createInstrumentChainForTrack(track, index);
+    const trackVoice = createTrackVoice(track, index);
 
     const events = track.notes.map((note) => {
       const event = {
@@ -466,15 +476,10 @@ function rebuildPlaybackGraph() {
       if (index === state.referenceTrackIndex && !guideAudible) {
         return;
       }
-      instrumentChain.instrument.triggerAttackRelease(
-        Tone.Frequency(event.midi, "midi"),
-        event.duration,
-        time,
-        event.velocity
-      );
+      trackVoice.trigger(time, event);
     }, events).start(0);
 
-    state.players.push({ part, disposeNodes: instrumentChain.disposeNodes });
+    state.players.push({ part, disposeNodes: trackVoice.disposeNodes });
   });
 
   state.totalDuration = maxEnd;
@@ -853,7 +858,180 @@ function setStatus(message) {
   dom.status.textContent = message;
 }
 
-function createInstrumentChainForTrack(track, index) {
+async function prepareSoundfontPresetsForCurrentSong() {
+  state.soundfont.readyForSong = false;
+  state.soundfont.trackPresets = new Map();
+  state.soundfont.drumPresets = new Map();
+
+  if (!state.midi) {
+    return;
+  }
+
+  const available = ensureSoundfontAvailable();
+  if (!available) {
+    return;
+  }
+
+  const loadTasks = [];
+
+  state.midi.tracks.forEach((track, index) => {
+    if (!track.notes.length) {
+      return;
+    }
+
+    if (isPercussionTrack(track)) {
+      const uniqueDrumNotes = [...new Set(track.notes.map((note) => note.midi))];
+      uniqueDrumNotes.forEach((drumNote) => {
+        loadTasks.push(
+          loadDrumPreset(drumNote).then((preset) => {
+            if (preset) {
+              state.soundfont.drumPresets.set(drumNote, preset);
+            }
+          })
+        );
+      });
+      return;
+    }
+
+    const program = clampMidiProgram(track.instrument?.number ?? 0);
+    loadTasks.push(
+      loadInstrumentPreset(program).then((preset) => {
+        if (preset) {
+          state.soundfont.trackPresets.set(index, preset);
+        }
+      })
+    );
+  });
+
+  try {
+    await Promise.all(loadTasks);
+    state.soundfont.readyForSong = true;
+  } catch (err) {
+    state.soundfont.readyForSong = false;
+    setStatus(`SoundFont load failed, using synth fallback (${err.message}).`);
+  }
+}
+
+function ensureSoundfontAvailable() {
+  if (state.soundfont.available) {
+    return true;
+  }
+
+  if (!window.WebAudioFontPlayer) {
+    return false;
+  }
+
+  state.soundfont.player = new window.WebAudioFontPlayer();
+  state.soundfont.audioContext = Tone.getContext().rawContext;
+  state.soundfont.available = true;
+  return true;
+}
+
+function loadInstrumentPreset(program) {
+  const loader = state.soundfont.player.loader;
+  const key = loader.findInstrument(program);
+  if (key == null || key < 0) {
+    return Promise.resolve(null);
+  }
+  const info = loader.instrumentInfo(key);
+  return loadPresetFromInfo(info);
+}
+
+function loadDrumPreset(drumMidiNote) {
+  const loader = state.soundfont.player.loader;
+  const key = loader.findDrum(drumMidiNote);
+  if (key == null || key < 0) {
+    return Promise.resolve(null);
+  }
+  const info = loader.drumInfo(key);
+  return loadPresetFromInfo(info);
+}
+
+function loadPresetFromInfo(info) {
+  if (!info?.variable || !info?.url) {
+    return Promise.resolve(null);
+  }
+
+  const existing = state.soundfont.presetPromiseCache.get(info.variable);
+  if (existing) {
+    return existing;
+  }
+
+  const loader = state.soundfont.player.loader;
+  const audioContext = state.soundfont.audioContext;
+  const promise = new Promise((resolve, reject) => {
+    try {
+      loader.startLoad(audioContext, info.url, info.variable);
+      loader.waitOrFinish(info.variable, () => {
+        try {
+          loader.decodeAfterLoading(audioContext, info.variable);
+          const preset = window[info.variable] || null;
+          resolve(preset);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
+
+  state.soundfont.presetPromiseCache.set(info.variable, promise);
+  return promise;
+}
+
+function createTrackVoice(track, index) {
+  if (state.soundfont.readyForSong && state.soundfont.available) {
+    const soundfontVoice = createSoundfontTrackVoice(track, index);
+    if (soundfontVoice) {
+      return soundfontVoice;
+    }
+  }
+
+  return createSynthTrackVoice(track, index);
+}
+
+function createSoundfontTrackVoice(track, index) {
+  const audioContext = state.soundfont.audioContext;
+  if (!audioContext || !state.soundfont.player) {
+    return null;
+  }
+
+  const role = detectVoiceRole(track, index);
+  const panner = typeof audioContext.createStereoPanner === "function" ? audioContext.createStereoPanner() : null;
+  const gainNode = audioContext.createGain();
+
+  if (panner) {
+    panner.pan.value = getPanForRole(role);
+    panner.connect(gainNode);
+  }
+  gainNode.gain.value = isPercussionTrack(track) ? 0.9 : 0.85;
+  gainNode.connect(audioContext.destination);
+
+  const targetNode = panner || gainNode;
+  const melodicPreset = state.soundfont.trackPresets.get(index) || null;
+
+  return {
+    trigger(time, event) {
+      const preset = isPercussionTrack(track) ? state.soundfont.drumPresets.get(event.midi) : melodicPreset;
+      if (!preset) {
+        return;
+      }
+      state.soundfont.player.queueWaveTable(
+        audioContext,
+        targetNode,
+        preset,
+        time,
+        event.midi,
+        event.duration,
+        event.velocity
+      );
+    },
+    disposeNodes: createAudioNodeDisposables([panner, gainNode])
+  };
+}
+
+function createSynthTrackVoice(track, index) {
   const role = detectVoiceRole(track, index);
   const program = track.instrument?.number ?? 0;
 
@@ -870,9 +1048,33 @@ function createInstrumentChainForTrack(track, index) {
   instrument.set({ detune: getDetuneForRole(role) });
 
   return {
-    instrument,
+    trigger(time, event) {
+      instrument.triggerAttackRelease(Tone.Frequency(event.midi, "midi"), event.duration, time, event.velocity);
+    },
     disposeNodes: [instrument, chorus, reverb, panner, gain]
   };
+}
+
+function createAudioNodeDisposables(nodes) {
+  return nodes
+    .filter(Boolean)
+    .map((node) => ({
+      dispose() {
+        try {
+          node.disconnect();
+        } catch {
+          // Ignore disconnect errors during teardown.
+        }
+      }
+    }));
+}
+
+function isPercussionTrack(track) {
+  return track.channel === 9 || track.instrument?.percussion === true;
+}
+
+function clampMidiProgram(program) {
+  return Math.max(0, Math.min(127, Number(program) || 0));
 }
 
 function detectVoiceRole(track, index) {

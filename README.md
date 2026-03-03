@@ -5,6 +5,7 @@ This project is a static web app you can host on GitHub Pages.
 It supports:
 - Song selection from `songs.json`
 - MIDI playback in browser
+- GM SoundFont playback (multi-instrument, including drum tracks where present)
 - MusicXML score rendering with OpenSheetMusicDisplay
 - Score display toggle: full score or reference part only
 - Microphone pitch detection
@@ -104,7 +105,8 @@ Then open `http://localhost:8080`.
 
 ## 8. Better Vocal Playback (SATB)
 
-The app now applies per-track voicing, pan spread, and light chorus/reverb.
+The app now uses WebAudioFont presets for fuller GM instrument playback, with
+fallback synth voicing if a preset cannot be loaded.
 
 For best results in your MIDI:
 - Name tracks with voice labels (`Soprano`, `Alto`, `Tenor`, `Bass`), or keep them in SATB order.
