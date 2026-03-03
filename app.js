@@ -360,11 +360,21 @@ function extractReferencePartMusicXml(xmlText, partIndex) {
     return xmlText;
   }
 
-  const scoreParts = Array.from(doc.getElementsByTagName("score-part"));
-  const partNodes = Array.from(doc.getElementsByTagName("part"));
-  const clamped = Math.max(0, partIndex);
-  const scorePartNode = scoreParts[clamped] || scoreParts[0] || null;
-  const keepPartId = scorePartNode?.getAttribute("id") || partNodes[clamped]?.getAttribute("id") || null;
+  const allNodes = Array.from(doc.getElementsByTagName("*"));
+  const scoreParts = allNodes.filter((node) => node.localName === "score-part");
+  const partNodes = allNodes.filter((node) => node.localName === "part");
+
+  if (partNodes.length <= 1) {
+    return xmlText;
+  }
+
+  const clamped = Math.min(Math.max(0, Number(partIndex) || 0), partNodes.length - 1);
+  const scorePartNode = scoreParts[clamped] || null;
+  const keepPartId =
+    scorePartNode?.getAttribute("id") ||
+    partNodes[clamped]?.getAttribute("id") ||
+    partNodes[0]?.getAttribute("id") ||
+    null;
 
   if (!keepPartId) {
     return xmlText;
@@ -375,6 +385,11 @@ function extractReferencePartMusicXml(xmlText, partIndex) {
       node.remove();
     }
   });
+
+  // Remove grouping brackets/labels so only the kept part remains in part-list.
+  allNodes
+    .filter((node) => node.localName === "part-group")
+    .forEach((node) => node.remove());
 
   partNodes.forEach((node) => {
     if (node.getAttribute("id") !== keepPartId) {
