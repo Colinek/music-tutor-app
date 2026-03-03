@@ -319,7 +319,8 @@ async function applySongData({ song, midiBuffer, xmlText, sourceLabel }) {
   await renderScoreForCurrentMode();
   syncCursorToTime(getEffectiveScoreTime(Tone.Transport.seconds));
 
-  setStatus(`${sourceLabel} loaded.`);
+  const engine = state.soundfont.readyForSong ? "SoundFont" : "Synth fallback";
+  setStatus(`${sourceLabel} loaded. Playback engine: ${engine}.`);
 }
 
 async function renderMusicXml(xmlText) {
@@ -893,7 +894,7 @@ async function prepareSoundfontPresetsForCurrentSong() {
       return;
     }
 
-    const program = clampMidiProgram(track.instrument?.number ?? 0);
+    const program = getPreferredProgramForTrack(track, index);
     loadTasks.push(
       loadInstrumentPreset(program).then((preset) => {
         if (preset) {
@@ -962,7 +963,7 @@ function loadPresetFromInfo(info) {
   const promise = new Promise((resolve, reject) => {
     try {
       loader.startLoad(audioContext, info.url, info.variable);
-      loader.waitOrFinish(info.variable, () => {
+      const onLoaded = () => {
         try {
           loader.decodeAfterLoading(audioContext, info.variable);
           const preset = window[info.variable] || null;
@@ -970,7 +971,17 @@ function loadPresetFromInfo(info) {
         } catch (err) {
           reject(err);
         }
-      });
+      };
+
+      // Some WebAudioFont builds expose waitOrFinish, others only waitLoad.
+      if (typeof loader.waitOrFinish === "function") {
+        loader.waitOrFinish(info.variable, onLoaded);
+      } else if (typeof loader.waitLoad === "function") {
+        loader.waitLoad(onLoaded);
+      } else {
+        // Last-resort fallback so loading does not hard-fail on API differences.
+        window.setTimeout(onLoaded, 1200);
+      }
     } catch (err) {
       reject(err);
     }
@@ -981,7 +992,7 @@ function loadPresetFromInfo(info) {
 }
 
 function createTrackVoice(track, index) {
-  if (state.soundfont.readyForSong && state.soundfont.available) {
+  if (state.soundfont.readyForSong && state.soundfont.available && hasSoundfontPresetForTrack(track, index)) {
     const soundfontVoice = createSoundfontTrackVoice(track, index);
     if (soundfontVoice) {
       return soundfontVoice;
@@ -989,6 +1000,13 @@ function createTrackVoice(track, index) {
   }
 
   return createSynthTrackVoice(track, index);
+}
+
+function hasSoundfontPresetForTrack(track, index) {
+  if (isPercussionTrack(track)) {
+    return track.notes.some((note) => state.soundfont.drumPresets.has(note.midi));
+  }
+  return state.soundfont.trackPresets.has(index);
 }
 
 function createSoundfontTrackVoice(track, index) {
@@ -1033,7 +1051,7 @@ function createSoundfontTrackVoice(track, index) {
 
 function createSynthTrackVoice(track, index) {
   const role = detectVoiceRole(track, index);
-  const program = track.instrument?.number ?? 0;
+  const program = getPreferredProgramForTrack(track, index);
 
   const synthOptions = getSynthOptionsForTrack(program, role);
   const instrument = new Tone.PolySynth(Tone.Synth, synthOptions);
@@ -1070,11 +1088,46 @@ function createAudioNodeDisposables(nodes) {
 }
 
 function isPercussionTrack(track) {
-  return track.channel === 9 || track.instrument?.percussion === true;
+  const label = `${track.name || ""} ${track.instrument?.name || ""}`.toLowerCase();
+  return (
+    track.channel === 9 ||
+    track.instrument?.percussion === true ||
+    label.includes("drum") ||
+    label.includes("perc")
+  );
 }
 
 function clampMidiProgram(program) {
   return Math.max(0, Math.min(127, Number(program) || 0));
+}
+
+function getPreferredProgramForTrack(track, index) {
+  const rawProgram = clampMidiProgram(track.instrument?.number ?? 0);
+  const label = `${track.name || ""} ${track.instrument?.name || ""}`.toLowerCase();
+  const role = detectVoiceRole(track, index);
+
+  // Keep explicit non-piano GM program assignments from the MIDI itself.
+  if (rawProgram !== 0) {
+    return rawProgram;
+  }
+
+  if (isPercussionTrack(track)) {
+    return 0;
+  }
+  if (label.includes("bass")) {
+    return 33; // Fingered Bass
+  }
+  if (label.includes("guitar")) {
+    return 24; // Nylon Guitar
+  }
+  if (label.includes("strings") || label.includes("violin") || label.includes("cello")) {
+    return 48; // String Ensemble 1
+  }
+  if (role !== "generic") {
+    return 52; // Choir Aahs
+  }
+
+  return rawProgram;
 }
 
 function detectVoiceRole(track, index) {
